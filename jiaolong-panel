@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Ryzen Panel — CPU 功耗/温度控制面板 (GTK4/Wayland)"""
+
+import subprocess, threading, time, glob as gm
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, GLib
+
+def read(path):
+    try:
+        with open(path) as f: return f.read().strip()
+    except: return None
+
+def temps():
+    t = {}
+    try:
+        for l in subprocess.run(["sensors"], capture_output=True, text=True, timeout=5).stdout.splitlines():
+            for k in ["Tctl","Tccd1","Tccd2","edge"]:
+                if k+":" in l: t[k.lower()]=float(l.split("+")[1].split("°")[0])
+    except: pass
+    return t
+
+def cpu():
+    g = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") or "?"
+    b = read("/sys/devices/system/cpu/cpufreq/boost") or "0"
+    s,n=0,0
+    for f in gm.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq"):
+        v=read(f)
+        if v: s+=int(v); n+=1
+    return g,b,s//n//1000 if n else 0
+
+def sudo(script):
+    try: subprocess.run(["pkexec","bash","-c",script],capture_output=True,timeout=10)
+    except: pass
+
+# EC 性能灯控制: printf \000(橙) \001(红) \002(蓝) dd seek=228(0xE4)
+EC = 'printf "{}" | dd of=/sys/kernel/debug/ec/ec0/io bs=1 seek=228 count=1 conv=notrunc 2>/dev/null'
+
+class Panel(Gtk.ApplicationWindow):
+    def __init__(self,app):
+        super().__init__(application=app,title="Ryzen Panel")
+        self.set_default_size(380,430)
+        self._tt=None
+        self._build()
+        self._tick()
+
+    def _build(self):
+        v=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12)
+        v.set_margin_top(16);v.set_margin_bottom(16);v.set_margin_start(20);v.set_margin_end(20)
+        self.set_child(v)
+
+        st=lambda t:t.set_halign(Gtk.Align.START)
+        ct=lambda t:t.set_halign(Gtk.Align.CENTER)
+        sep=lambda:v.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        l=Gtk.Label();l.set_markup('<span size="x-large" weight="bold">🌡 温度</span>');st(l);v.append(l)
+        self._tl=Gtk.Label();ct(self._tl);v.append(self._tl)
+        self._td=Gtk.Label();ct(self._td);v.append(self._td);sep()
+
+        l=Gtk.Label();l.set_markup('<span size="x-large" weight="bold">⚡ 频率 & 策略</span>');st(l);v.append(l)
+        self._fl=Gtk.Label();ct(self._fl);v.append(self._fl)
+        self._gl=Gtk.Label();ct(self._gl);v.append(self._gl)
+        self._bl=Gtk.Label();ct(self._bl);v.append(self._bl);sep()
+
+        l=Gtk.Label();l.set_markup('<span size="x-large" weight="bold">🎛 模式</span>');st(l);v.append(l)
+        r=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=8);r.set_halign(Gtk.Align.CENTER)
+        for nm,cb in [("省电",self._ps),("均衡",self._bal),("性能",self._pf)]:
+            b=Gtk.Button(label=nm);b.connect("clicked",lambda _,f=cb:threading.Thread(target=f,daemon=True).start());r.append(b)
+        v.append(r)
+
+        r2=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=8);r2.set_margin_top(8)
+        r2.append(Gtk.Label(label="温度墙:"))
+        adj=Gtk.Adjustment(value=85,lower=70,upper=100,step_increment=1,page_increment=5,page_size=0)
+        self._sc=Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL,adjustment=adj)
+        self._sc.set_hexpand(True);self._sc.set_digits(0)
+        self._sc.connect("value-changed",self._on_sc)
+        r2.append(self._sc)
+        self._sl=Gtk.Label(label="85°C");r2.append(self._sl);v.append(r2)
+
+        self._st=Gtk.Label();self._st.set_margin_top(4);ct(self._st);v.append(self._st)
+
+    def _tick(self):
+        t=temps();g,b,f=cpu()
+        tc=t.get("tctl",0)
+        c="#4ade80" if tc<80 else "#fbbf24" if tc<90 else "#ef4444"
+        self._tl.set_markup(f'<span size="xx-large" weight="bold" foreground="{c}">{tc:.0f}°C</span>')
+        self._td.set_markup(f'<span>CCD1:{t.get("tccd1",0):.0f}°C · CCD2:{t.get("tccd2",0):.0f}°C · GPU:{t.get("edge",0):.0f}°C</span>')
+        self._fl.set_markup(f'<span size="large">{f} MHz</span>')
+        gc="#60a5fa" if g=="powersave" else "#f87171"
+        self._gl.set_markup(f'<span>governor: <b foreground="{gc}">{g}</b></span>')
+        bc,bt=("#4ade80","开启") if b=="1" else ("#9ca3af","关闭")
+        self._bl.set_markup(f'<span>boost: <b foreground="{bc}">{bt}</b></span>')
+        self._st.set_text(f"刷新于 {time.strftime('%H:%M:%S')}")
+        return True
+
+    def _ps(self):
+        sudo("echo powersave | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null; "
+             "echo 0 > /sys/devices/system/cpu/cpufreq/boost; "
+             "ryzenadj --stapm-limit=35000 --fast-limit=45000 --slow-limit=55000 --tctl-temp=80; "
+             + EC.format(r'\002'))
+        GLib.idle_add(lambda:self._st.set_text("✓ 省电模式已应用 (蓝灯)"))
+
+    def _bal(self):
+        sudo("echo powersave | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null; "
+             "echo 1 > /sys/devices/system/cpu/cpufreq/boost; "
+             "ryzenadj --stapm-limit=55000 --fast-limit=70000 --slow-limit=85000 --tctl-temp=90; "
+             + EC.format(r'\000'))
+        GLib.idle_add(lambda:self._st.set_text("✓ 均衡模式已应用 (橙灯)"))
+
+    def _pf(self):
+        sudo("echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null; "
+             "echo 1 > /sys/devices/system/cpu/cpufreq/boost; "
+             "ryzenadj --stapm-limit=75000 --fast-limit=90000 --slow-limit=110000 --tctl-temp=95; "
+             + EC.format(r'\001'))
+        GLib.idle_add(lambda:self._st.set_text("✓ 性能模式已应用 (红灯)"))
+
+    def _on_sc(self,sc):
+        vv=int(sc.get_value());self._sl.set_text(f"{vv}°C")
+        if self._tt:GLib.source_remove(self._tt)
+        self._tt=GLib.timeout_add(500,self._apply_sc,vv)
+
+    def _apply_sc(self,vv):
+        self._tt=None
+        threading.Thread(target=lambda:sudo(f"ryzenadj --tctl-temp={vv}"),daemon=True).start()
+        GLib.idle_add(lambda:self._st.set_text(f"✓ 温度墙 → {vv}°C"))
+
+class App(Gtk.Application):
+    def __init__(self):super().__init__(application_id="com.jiaolong.panel")
+    def do_activate(self):
+        w=Panel(self);w.present();GLib.timeout_add_seconds(2,w._tick)
+
+if __name__=="__main__":App().run()

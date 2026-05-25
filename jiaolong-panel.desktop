@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Jiaolong Panel
+Comment=CPU 功耗/温度控制面板
+Exec=setsid -f python3 /usr/bin/jiaolong-panel
+Type=Application
+Categories=System;Monitor;
+Icon=utilities-system-monitor
+Terminal=false
+StartupNotify=false

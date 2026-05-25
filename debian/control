@@ -1,0 +1,12 @@
+Source: jiaolong-panel
+Section: utils
+Priority: optional
+Maintainer: giantgkl
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/giantgkl/jiaolong-panel
+
+Package: jiaolong-panel
+Architecture: all
+Depends: python3, python3-gi, gir1.2-gtk-4.0, ryzenadj, lm-sensors, polkit
+Description: CPU power/temperature control panel for Mechrevo Jiaolong 16 Pro (2023)
