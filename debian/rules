@@ -3,8 +3,8 @@
 	dh $@
 
 override_dh_auto_install:
-	install -Dm755 ryzen-panel $(CURDIR)/debian/ryzen-panel/usr/bin/ryzen-panel
-	install -Dm644 ryzen-panel.desktop $(CURDIR)/debian/ryzen-panel/usr/share/applications/ryzen-panel.desktop
+	install -Dm755 jiaolong-panel $(CURDIR)/debian/jiaolong-panel/usr/bin/jiaolong-panel
+	install -Dm644 jiaolong-panel.desktop $(CURDIR)/debian/jiaolong-panel/usr/share/applications/jiaolong-panel.desktop
 
 override_dh_auto_build:
 	# nothing to build
