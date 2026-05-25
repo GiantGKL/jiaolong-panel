@@ -1,0 +1,18 @@
+pkgbase = jiaolong-panel
+	pkgdesc = CPU power/temperature control panel for Mechrevo Jiaolong 16 Pro (2023)
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/giantgkl/jiaolong-panel
+	arch = any
+	license = MIT
+	makedepends = git
+	depends = python
+	depends = python-gobject
+	depends = gtk4
+	depends = ryzenadj
+	depends = lm_sensors
+	depends = polkit
+	source = git+https://github.com/giantgkl/jiaolong-panel.git
+	sha256sums = SKIP
+
+pkgname = jiaolong-panel
